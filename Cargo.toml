@@ -1,6 +1,6 @@
 [package]
 name = "stackmap"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Dean Chalk dean.chalk@gmail.com"]
 description = "A fast stack-only hashmap for small high-performance scenarios"

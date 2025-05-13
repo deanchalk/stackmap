@@ -53,8 +53,8 @@ pub enum StackMapError {
 /// - Cache locality is important for performance
 ///
 /// Type Parameters:
-/// - `K`: Key type, must implement `Eq + Clone + Default`
-/// - `V`: Value type, must implement `Clone + Default`
+/// - `K`: Key type, must implement `PartialEq`
+/// - `V`: Value type, must implement `Clone`, when using take
 /// - `N`: Capacity of the map (const generic parameter)
 #[derive(Debug)]
 pub struct StackMap<K, V, const N: usize> {
@@ -81,8 +81,7 @@ pub struct Entry<K, V> {
 
 impl<K, V, const N: usize> StackMap<K, V, N>
 where
-    K: Eq + Clone + Default,
-    V: Clone + Default,
+    K: PartialEq,
 {
     /// Creates a new empty StackMap with the capacity specified by the const generic parameter N.
     ///
@@ -95,12 +94,9 @@ where
     /// assert!(map.is_empty());
     /// assert_eq!(map.capacity(), 16);
     /// ```
-    pub fn new() -> Self
-    where
-        [Option<Entry<K, V>>; N]: Default,
-    {
+    pub fn new() -> Self {
         Self {
-            entries: Default::default(),
+            entries: [const { None }; N],
             size: 0,
         }
     }
@@ -216,7 +212,8 @@ where
         None
     }
 
-    /// Removes a key from the map, returning the associated value if found.
+    /// Removes a key from the map, returning whether a value has been found.
+    /// See `take` for when you are interested in the actual value (which requires V: Clone)
     ///
     /// This method uses a logical deletion approach (setting a deleted flag)
     /// rather than physically removing the entry. This preserves the probing
@@ -237,21 +234,21 @@ where
     /// let mut map = StackMap::<&str, i32, 8>::new();
     /// map.insert_or_update("apple", 42).unwrap();
     ///
-    /// assert_eq!(map.remove(&"apple"), Some(42));
+    /// assert_eq!(map.remove(&"apple"), true);
     /// assert_eq!(map.len(), 0);
-    /// assert_eq!(map.remove(&"apple"), None); // Already removed
+    /// assert_eq!(map.remove(&"apple"), false); // Already removed
     /// ```
-    pub fn remove(&mut self, key: &K) -> Option<V> {
+    pub fn remove(&mut self, key: &K) -> bool {
         for i in 0..N {
             if let Some(entry) = &mut self.entries[i] {
                 if !entry.deleted && &entry.key == key {
                     entry.deleted = true;
                     self.size -= 1;
-                    return Some(entry.value.clone());
+                    return true;
                 }
             }
         }
-        None
+        false
     }
 
     /// Returns the number of elements currently in the map.
@@ -382,6 +379,50 @@ where
             Some(e) if !e.deleted => Some((&e.key, &e.value)),
             _ => None,
         })
+    }
+}
+
+impl<K, V, const N: usize> StackMap<K, V, N>
+where
+    K: PartialEq,
+    V: Clone,
+{
+    /// Removes a key from the map, returning the associated value if found.
+    ///
+    /// This method uses a logical deletion approach (setting a deleted flag)
+    /// rather than physically removing the entry. This preserves the probing
+    /// sequence for future lookups.
+    ///
+    /// Time Complexity: O(N) in the worst case (linear scan through entries)
+    ///
+    /// # Parameters
+    /// - `key`: The key to remove
+    ///
+    /// # Returns
+    /// - `Some(V)` with the value if the key was found and removed
+    /// - `None` if the key was not in the map
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut map = StackMap::<&str, i32, 8>::new();
+    /// map.insert_or_update("apple", 42).unwrap();
+    ///
+    /// assert_eq!(map.take(&"apple"), Some(42));
+    /// assert_eq!(map.len(), 0);
+    /// assert_eq!(map.take(&"apple"), None); // Already removed
+    /// ```
+    pub fn take(&mut self, key: &K) -> Option<V> {
+        for i in 0..N {
+            if let Some(entry) = &mut self.entries[i] {
+                if !entry.deleted && &entry.key == key {
+                    entry.deleted = true;
+                    self.size -= 1;
+                    return Some(entry.value.clone());
+                }
+            }
+        }
+        None
     }
 }
 
